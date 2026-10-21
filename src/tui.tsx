@@ -122,25 +122,23 @@ export default Plugin.define({
 function UsageLine(props: { sessionID?: string; snapshot: UsageSnapshot | null; now: number; hasKey: boolean }) {
   const context = usePlugin() as any
   const visible = () => {
-    if (!props.sessionID || !props.hasKey || !props.snapshot) return false
+    if (!props.sessionID) return false
     try {
       const model = context?.ui?.model?.current?.()
       if (isNonGoProvider(model?.providerID)) return false
     } catch {
       // 判定不能時は表示
     }
-    try {
-      const msgs = context?.data?.session?.message?.list?.(props.sessionID)
-      if (Array.isArray(msgs) && msgs.length === 0) return false
-    } catch {
-      // 取得不能時は表示
-    }
     return true
+  }
+  const label = () => {
+    if (props.snapshot) return formatSummary(props.snapshot as UsageSnapshot, props.now)
+    return "Go …"
   }
   return (
     <Show when={visible()}>
       <box flexDirection="row" paddingLeft={1}>
-        <text fg={context.theme.text.muted}>{formatSummary(props.snapshot as UsageSnapshot, props.now)}</text>
+        <text fg={context.theme.text.muted}>{label()}</text>
       </box>
     </Show>
   )
