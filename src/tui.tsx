@@ -39,7 +39,7 @@ async function getCredentialKey(ctx: any): Promise<string | null> {
 function isNonGoProvider(providerID: unknown): boolean {
   if (typeof providerID !== "string" || providerID.length === 0) return false
   const p = providerID.toLowerCase()
-  if (p.includes("opencode") || p.includes("zen") || p.includes("go")) return false
+  if (p === "go" || p === "opencode-go" || p.startsWith("opencode") || p.includes("zen")) return false
   return true
 }
 
