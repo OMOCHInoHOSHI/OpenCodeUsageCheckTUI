@@ -1,21 +1,19 @@
 # opencode-usage-check-tui
 
-OpenCode のプロンプトフッターに使用量を表示する TUI プラグインの雛形です。現在はダミー値を表示します。
+Goクォータ `Rolling/Weekly/Monthly %` をTUI入力欄直下の1行に表示するプラグイン。
+
+表示: `prompt.footer.status` にappend (`Go 5h 62%·3h30m Wk 28%·3d Mo 12%·16d`)
+重なり回避: `append`のみ、`replace`不使用、単一`<text muted>`+`Go`接頭辞。sidebar系と併存可。
 
 ## 使い方
 
-`cli.json` の `plugins` に追加します。
+`~/.config/opencode/cli.json` に追加:
 
 ```json
 {
-  "plugins": ["opencode-usage-check-tui"]
+  "plugins": ["/home/omochinohoshi/cording/OpenCodeUsageCheckTUI"]
 }
 ```
 
-ローカル配置の場合はパス指定でも追加できます。
-
-```json
-{
-  "plugins": ["./path/to/OpenCodeUsageCheckTUI"]
-}
-```
+キー解決: `OPENCODE_API_KEY`優先、無ければ `opencode-go` credential。401/403・非Go選択・未発話セッションでは非表示。
+更新: 起動時+`session.idle`/`session.execution.succeeded`、5分間隔、カウントダウンは60s tick。
