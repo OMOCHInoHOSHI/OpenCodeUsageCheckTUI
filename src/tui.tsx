@@ -8,56 +8,48 @@ import { Plugin, usePlugin } from "opentui:runtime-module:%40opencode%2Fplugin%2
 import { jsx } from "opentui:runtime-module:%40opentui%2Fsolid%2Fjsx-runtime"
 import { fetchUsage, formatSummary, type UsageSnapshot } from "./usage.js"
 
-const FETCH_INTERVAL_MS = 5 * 60 * 1000
-const MIN_REFRESH_MS = 30 * 1000
-const TICK_MS = 60 * 1000
+const FETCH_INTERVAL_MS = 5 * 60_000
+const MIN_REFRESH_MS = 30_000
+const TICK_MS = 60_000
 
 // jsx-runtime の型は (props: Record<string, unknown>) => unknown のため、
 // ジェネリックな Show との型差を吸収する。
 type AnyComponent = (props: Record<string, unknown>) => unknown
 const show = Show as unknown as AnyComponent
 
-function getEnvKey(): string | null {
-  try {
-    const k = (globalThis as any)?.process?.env?.["OPENCODE_API_KEY"]
-    return typeof k === "string" && k.length > 0 ? k : null
-  } catch {
-    return null
-  }
-}
+async function resolveApiKey(ctx: any): Promise<string | null> {
+  const envKey = process?.env?.OPENCODE_API_KEY
+  if (envKey) return envKey
 
-async function getCredentialKey(ctx: any): Promise<string | null> {
   try {
     const list = ctx?.client?.credential?.list
     if (typeof list !== "function") return null
     const res = await list.call(ctx.client)
     const items: any[] = Array.isArray(res) ? res : (res?.data ?? res?.credentials ?? [])
-    for (const c of items) {
-      const id = c?.integrationID ?? c?.integration ?? c?.provider ?? ""
-      const active = c?.active ?? c?.isActive ?? true
-      if (String(id).toLowerCase().includes("opencode") && active) {
-        const v = c?.value ?? c?.credential ?? c
-        const key = v?.key ?? v?.token ?? v?.apiKey ?? (typeof v === "string" ? v : null)
-        if (typeof key === "string" && key.length > 0) return key
-      }
+    for (const item of items) {
+      const id = String(item?.integrationID ?? item?.integration ?? item?.provider ?? "").toLowerCase()
+      const active = item?.active ?? item?.isActive ?? true
+      if (!id.includes("opencode") || !active) continue
+
+      const raw = item?.value ?? item?.credential ?? item
+      const key = typeof raw === "string" ? raw : (raw?.key ?? raw?.token ?? raw?.apiKey)
+      if (typeof key === "string" && key.length > 0) return key
     }
-    return null
   } catch {
-    return null
+    // credential API未対応・取得失敗時は無視
   }
+  return null
 }
 
-function isNonGoProvider(providerID: unknown): boolean {
-  if (typeof providerID !== "string" || providerID.length === 0) return false
+function isGoProvider(providerID: unknown): boolean {
+  if (typeof providerID !== "string" || providerID.length === 0) return true
   const p = providerID.toLowerCase()
-  if (p === "go" || p === "opencode-go" || p.startsWith("opencode") || p.includes("zen")) return false
-  return true
+  return p === "go" || p === "opencode-go" || p.startsWith("opencode") || p.includes("zen")
 }
 
 type UsageLineProps = {
   snapshot: UsageSnapshot | null
   now: number
-  hasKey: boolean
 }
 
 // 画面最下段の独立1行に表示する（app スロットappend）。
@@ -65,19 +57,9 @@ type UsageLineProps = {
 // 同じ行に入れると折り返す。app スロットはルート内容の下に全幅で積まれる。
 function UsageLine(props: UsageLineProps) {
   const context = usePlugin() as any
-  const visible = () => {
-    try {
-      const model = context?.ui?.model?.current?.()
-      if (isNonGoProvider(model?.providerID)) return false
-    } catch {
-      // 判定不能時は表示
-    }
-    return true
-  }
-  const label = () => {
-    if (props.snapshot) return formatSummary(props.snapshot, props.now)
-    return "Go …"
-  }
+  const visible = () => isGoProvider(context?.ui?.model?.current?.()?.providerID)
+  const label = () => (props.snapshot ? formatSummary(props.snapshot, props.now) : "Go …")
+
   return jsx(show, {
     get when() {
       return visible()
@@ -105,26 +87,20 @@ export default Plugin.define({
   setup(context: any) {
     const [snapshot, setSnapshot] = createSignal<UsageSnapshot | null>(null)
     const [now, setNow] = createSignal(Date.now())
-    const [hasKey, setHasKey] = createSignal(false)
     let lastFetch = 0
     let inFlight = false
     let disposed = false
 
     const refresh = async () => {
       if (inFlight || disposed) return
-      const t = Date.now()
-      if (t - lastFetch < MIN_REFRESH_MS) return
+      if (Date.now() - lastFetch < MIN_REFRESH_MS) return
       inFlight = true
       try {
-        const key = getEnvKey() ?? (await getCredentialKey(context))
-        if (!key) {
-          if (!disposed) setHasKey(false)
-          return
-        }
-        if (!disposed) setHasKey(true)
-        const s = await fetchUsage(key)
+        const key = await resolveApiKey(context)
+        if (!key) return
+        const next = await fetchUsage(key)
         lastFetch = Date.now()
-        if (!disposed) setSnapshot(s)
+        if (!disposed) setSnapshot(next)
       } catch {
         // 401/403/ネットワーク時は沈黙: 前回値保持
       } finally {
@@ -139,18 +115,9 @@ export default Plugin.define({
       if (Date.now() - lastFetch >= FETCH_INTERVAL_MS) void refresh()
     }, TICK_MS)
 
-    let stopIdle: (() => void) | undefined
-    try {
-      stopIdle = context?.data?.on?.("session.idle", () => void refresh())
-    } catch {
-      stopIdle = undefined
-    }
-    let stopExec: (() => void) | undefined
-    try {
-      stopExec = context?.data?.on?.("session.execution.succeeded", () => void refresh())
-    } catch {
-      stopExec = undefined
-    }
+    const onRefresh = () => void refresh()
+    const stopIdle = context?.data?.on?.("session.idle", onRefresh)
+    const stopExec = context?.data?.on?.("session.execution.succeeded", onRefresh)
 
     // フッタ行（ディレクトリ/コスト）の一段下＝画面最下段、ホーム画面でも表示
     const unregister = context.ui.slot({
@@ -163,24 +130,15 @@ export default Plugin.define({
           get now() {
             return now()
           },
-          get hasKey() {
-            return hasKey()
-          },
         }),
     })
 
     return () => {
       disposed = true
       clearInterval(tick)
-      try {
-        stopIdle?.()
-      } catch {}
-      try {
-        stopExec?.()
-      } catch {}
-      try {
-        ;(unregister as unknown as () => void)?.()
-      } catch {}
+      for (const cleanup of [stopIdle, stopExec, unregister]) {
+        if (typeof cleanup === "function") cleanup()
+      }
     }
   },
 })
