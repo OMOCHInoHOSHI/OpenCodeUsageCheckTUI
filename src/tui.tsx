@@ -76,7 +76,7 @@ function UsageLine(props: UsageLineProps) {
   }
   const label = () => {
     if (props.snapshot) return formatSummary(props.snapshot as UsageSnapshot, props.now)
-    return "Go …"
+    return ["Go …"]
   }
   return jsx(show, {
     get when() {
@@ -86,16 +86,20 @@ function UsageLine(props: UsageLineProps) {
       width: "100%",
       paddingLeft: 1,
       flexShrink: 0,
-      children: jsx("text", {
-        wrapMode: "none",
-        truncate: true,
-        get fg() {
-          return context.theme.text.muted
-        },
-        get children() {
-          return label()
-        },
-      }),
+      get children() {
+        return label().map((line) =>
+          jsx("text", {
+            wrapMode: "none",
+            truncate: true,
+            get fg() {
+              return context.theme.text.muted
+            },
+            get children() {
+              return line
+            },
+          }),
+        )
+      },
     }),
   })
 }
