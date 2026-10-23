@@ -1,10 +1,21 @@
-import { Plugin, usePlugin } from "@opencode/plugin/tui"
-import { Show, createSignal } from "solid-js"
+// TUIエントリ。JSX構文を使わない。
+// github:/npm配布では node_modules 配下の .tsx が OpenTUI transform対象外となり、
+// 自動生成される react/jsx-runtime import で `Cannot find package 'react'` になる。
+// そのため仮想ID経由の import + jsx()/jsxs() 手書きでホスト単一インスタンスに載せる。
+// 参考: anomalyco/opencode#39986, pistonex/opencode-go-usage@0.1.3
+import { createSignal, Show } from "opentui:runtime-module:solid-js"
+import { Plugin, usePlugin } from "opentui:runtime-module:%40opencode%2Fplugin%2Ftui"
+import { jsx, jsxs } from "opentui:runtime-module:%40opentui%2Fsolid%2Fjsx-runtime"
 import { fetchUsage, formatSummary, type UsageSnapshot } from "./usage.js"
 
 const FETCH_INTERVAL_MS = 5 * 60 * 1000
 const MIN_REFRESH_MS = 30 * 1000
 const TICK_MS = 60 * 1000
+
+// jsx-runtime の型は (props: Record<string, unknown>) => unknown のため、
+// ジェネリックな Show との型差を吸収する。
+type AnyComponent = (props: Record<string, unknown>) => unknown
+const show = Show as unknown as AnyComponent
 
 function getEnvKey(): string | null {
   try {
@@ -41,6 +52,48 @@ function isNonGoProvider(providerID: unknown): boolean {
   const p = providerID.toLowerCase()
   if (p === "go" || p === "opencode-go" || p.startsWith("opencode") || p.includes("zen")) return false
   return true
+}
+
+type UsageLineProps = {
+  sessionID?: string
+  snapshot: UsageSnapshot | null
+  now: number
+  hasKey: boolean
+}
+
+function UsageLine(props: UsageLineProps) {
+  const context = usePlugin() as any
+  const visible = () => {
+    if (!props.sessionID) return false
+    try {
+      const model = context?.ui?.model?.current?.()
+      if (isNonGoProvider(model?.providerID)) return false
+    } catch {
+      // 判定不能時は表示
+    }
+    return true
+  }
+  const label = () => {
+    if (props.snapshot) return formatSummary(props.snapshot as UsageSnapshot, props.now)
+    return "Go …"
+  }
+  return jsx(show, {
+    get when() {
+      return visible()
+    },
+    children: jsx("box", {
+      flexDirection: "row",
+      paddingLeft: 1,
+      children: jsx("text", {
+        get fg() {
+          return context.theme.text.muted
+        },
+        get children() {
+          return label()
+        },
+      }),
+    }),
+  })
 }
 
 export default Plugin.define({
@@ -99,7 +152,20 @@ export default Plugin.define({
       append: "prompt.footer.status",
       render: (input: any) => {
         const sessionID: string | undefined = input?.sessionID
-        return <UsageLine sessionID={sessionID} snapshot={snapshot()} now={now()} hasKey={hasKey()} />
+        return jsx(UsageLine as unknown as AnyComponent, {
+          get sessionID() {
+            return sessionID
+          },
+          get snapshot() {
+            return snapshot()
+          },
+          get now() {
+            return now()
+          },
+          get hasKey() {
+            return hasKey()
+          },
+        })
       },
     })
 
@@ -118,28 +184,3 @@ export default Plugin.define({
     }
   },
 })
-
-function UsageLine(props: { sessionID?: string; snapshot: UsageSnapshot | null; now: number; hasKey: boolean }) {
-  const context = usePlugin() as any
-  const visible = () => {
-    if (!props.sessionID) return false
-    try {
-      const model = context?.ui?.model?.current?.()
-      if (isNonGoProvider(model?.providerID)) return false
-    } catch {
-      // 判定不能時は表示
-    }
-    return true
-  }
-  const label = () => {
-    if (props.snapshot) return formatSummary(props.snapshot as UsageSnapshot, props.now)
-    return "Go …"
-  }
-  return (
-    <Show when={visible()}>
-      <box flexDirection="row" paddingLeft={1}>
-        <text fg={context.theme.text.muted}>{label()}</text>
-      </box>
-    </Show>
-  )
-}
