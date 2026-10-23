@@ -23,6 +23,8 @@ Goクォータ `Rolling/Weekly/Monthly %` をTUI入力欄直下の1行に表示�
 キー解決: `OPENCODE_API_KEY`優先、無ければ `opencode-go` credential。401/403・非Go選択時は非表示。
 更新: 起動時+`session.idle`/`session.execution.succeeded`、5分間隔、カウントダウンは60s tick。
 
+パーセントは整数表示。公式API (`zen/go/v1/usage`) も整数で返すため実質一致。ただし本家コンソール（内部値を切り上げ表示している可能性）と±1%ずれることがある。
+
 ## 表示確認
 
 - セッション画面: 入力欄フッタ（ディレクトリ名・コスト行）の一段下＝画面最下段
