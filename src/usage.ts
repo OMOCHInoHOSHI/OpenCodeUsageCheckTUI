@@ -60,12 +60,12 @@ function fmtPct(p: number | null): string {
   return p === null ? "-" : `${Math.round(p)}%`
 }
 
-// フッタ用の3行表示を返す。
-export function formatSummary(s: UsageSnapshot, now: number): string[] {
+// フッタ用の1行表示を返す。
+export function formatSummary(s: UsageSnapshot, now: number): string {
   const r = `${fmtPct(s.rolling.percent)}(${formatRemainingRolling(s.rolling.resetsAt, now)})`
   const w = `${fmtPct(s.weekly.percent)}(${formatRemainingLong(s.weekly.resetsAt, now)})`
   const m = `${fmtPct(s.monthly.percent)}(${formatRemainingLong(s.monthly.resetsAt, now)})`
-  return [`Go 5h ${r}`, `週 ${w}`, `月 ${m}`]
+  return `Go 5h ${r} 週 ${w} 月 ${m}`
 }
 
 export async function fetchUsage(apiKey: string): Promise<UsageSnapshot> {
