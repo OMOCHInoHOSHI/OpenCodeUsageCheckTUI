@@ -2,8 +2,8 @@
 
 Goクォータ `Rolling/Weekly/Monthly %` をTUI入力欄直下の1行に表示するプラグイン。
 
-表示: `prompt.footer.status` と `home.footer.status` にappend (`Go 5h 62%·3h30m Wk 28%·3d Mo 12%·14d`)
-重なり回避: `append`のみ、`replace`不使用、単一`<text muted>`+`Go`接頭辞。sidebar系と併存可。
+表示: `app` スロットにappendし、画面最下段の独立1行に出す (`Go 5h 62%·3h30m Wk 28%·3d Mo 12%·14d`)
+重なり回避: `append`のみ、`replace`不使用。フッタ行（ディレクトリ/コスト）の一段下、横並びに入り込まない。単一`<text muted>`+`Go`接頭辞。sidebar系と併存可。
 
 ## 使い方（mac/win共通・GitHub配布）
 
@@ -25,7 +25,7 @@ Goクォータ `Rolling/Weekly/Monthly %` をTUI入力欄直下の1行に表示�
 
 ## 表示確認
 
-- セッション画面: 入力欄直下（`prompt.footer.status`）
-- ホーム画面（起動直後・セッション未選択）: フッタ行に表示（`home.footer.status`）
+- セッション画面: 入力欄フッタ（ディレクトリ名・コスト行）の一段下＝画面最下段
+- ホーム画面（起動直後・セッション未選択）: ホームフッタ行の一段下
 
 TUI再起動が必要。

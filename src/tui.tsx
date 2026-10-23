@@ -55,20 +55,17 @@ function isNonGoProvider(providerID: unknown): boolean {
 }
 
 type UsageLineProps = {
-  sessionID?: string
   snapshot: UsageSnapshot | null
   now: number
   hasKey: boolean
-  /** true: セッション選択中のみ表示（prompt.footer用）。false: ホーム画面でも表示 */
-  requireSession?: boolean
-  /** true: boxラッパ無しの text のみを返す（home.footerのinline行用） */
-  bare?: boolean
 }
 
+// 画面最下段の独立1行に表示する（app スロットappend）。
+// ディレクトリ名・コストなどのフッタ行は横並び1行で wrap しないため、
+// 同じ行に入れると折り返す。app スロットはルート内容の下に全幅で積まれる。
 function UsageLine(props: UsageLineProps) {
   const context = usePlugin() as any
   const visible = () => {
-    if (props.requireSession && !props.sessionID) return false
     try {
       const model = context?.ui?.model?.current?.()
       if (isNonGoProvider(model?.providerID)) return false
@@ -81,12 +78,17 @@ function UsageLine(props: UsageLineProps) {
     if (props.snapshot) return formatSummary(props.snapshot as UsageSnapshot, props.now)
     return "Go …"
   }
-  const line = () =>
-    jsx(show, {
-      get when() {
-        return visible()
-      },
+  return jsx(show, {
+    get when() {
+      return visible()
+    },
+    children: jsx("box", {
+      width: "100%",
+      paddingLeft: 1,
+      flexShrink: 0,
       children: jsx("text", {
+        wrapMode: "none",
+        truncate: true,
         get fg() {
           return context.theme.text.muted
         },
@@ -94,12 +96,7 @@ function UsageLine(props: UsageLineProps) {
           return label()
         },
       }),
-    })
-  if (props.bare) return line()
-  return jsx("box", {
-    flexDirection: "row",
-    paddingLeft: 1,
-    children: line(),
+    }),
   })
 }
 
@@ -155,30 +152,9 @@ export default Plugin.define({
       stopExec = undefined
     }
 
-    const unregisterPrompt = context.ui.slot({
-      append: "prompt.footer.status",
-      render: (input: any) => {
-        const sessionID: string | undefined = input?.sessionID
-        return jsx(UsageLine as unknown as AnyComponent, {
-          get sessionID() {
-            return sessionID
-          },
-          get snapshot() {
-            return snapshot()
-          },
-          get now() {
-            return now()
-          },
-          get hasKey() {
-            return hasKey()
-          },
-          requireSession: true,
-        })
-      },
-    })
-    // 起動直後のホーム画面（セッション未選択）でも表示する
-    const unregisterHome = context.ui.slot({
-      append: "home.footer.status",
+    // フッタ行（ディレクトリ/コスト）の一段下＝画面最下段、ホーム画面でも表示
+    const unregister = context.ui.slot({
+      append: "app",
       render: () =>
         jsx(UsageLine as unknown as AnyComponent, {
           get snapshot() {
@@ -190,8 +166,6 @@ export default Plugin.define({
           get hasKey() {
             return hasKey()
           },
-          requireSession: false,
-          bare: true,
         }),
     })
 
@@ -204,11 +178,9 @@ export default Plugin.define({
       try {
         stopExec?.()
       } catch {}
-      for (const unregister of [unregisterPrompt, unregisterHome]) {
-        try {
-          ;(unregister as unknown as () => void)?.()
-        } catch {}
-      }
+      try {
+        ;(unregister as unknown as () => void)?.()
+      } catch {}
     }
   },
 })
