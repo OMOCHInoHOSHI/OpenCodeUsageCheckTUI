@@ -5,7 +5,7 @@
 // 参考: anomalyco/opencode#39986, pistonex/opencode-go-usage@0.1.3
 import { createSignal, Show } from "opentui:runtime-module:solid-js"
 import { Plugin, usePlugin } from "opentui:runtime-module:%40opencode%2Fplugin%2Ftui"
-import { jsx, jsxs } from "opentui:runtime-module:%40opentui%2Fsolid%2Fjsx-runtime"
+import { jsx } from "opentui:runtime-module:%40opentui%2Fsolid%2Fjsx-runtime"
 import { fetchUsage, formatSummary, type UsageSnapshot } from "./usage.js"
 
 const FETCH_INTERVAL_MS = 5 * 60 * 1000
@@ -59,12 +59,16 @@ type UsageLineProps = {
   snapshot: UsageSnapshot | null
   now: number
   hasKey: boolean
+  /** true: セッション選択中のみ表示（prompt.footer用）。false: ホーム画面でも表示 */
+  requireSession?: boolean
+  /** true: boxラッパ無しの text のみを返す（home.footerのinline行用） */
+  bare?: boolean
 }
 
 function UsageLine(props: UsageLineProps) {
   const context = usePlugin() as any
   const visible = () => {
-    if (!props.sessionID) return false
+    if (props.requireSession && !props.sessionID) return false
     try {
       const model = context?.ui?.model?.current?.()
       if (isNonGoProvider(model?.providerID)) return false
@@ -77,13 +81,11 @@ function UsageLine(props: UsageLineProps) {
     if (props.snapshot) return formatSummary(props.snapshot as UsageSnapshot, props.now)
     return "Go …"
   }
-  return jsx(show, {
-    get when() {
-      return visible()
-    },
-    children: jsx("box", {
-      flexDirection: "row",
-      paddingLeft: 1,
+  const line = () =>
+    jsx(show, {
+      get when() {
+        return visible()
+      },
       children: jsx("text", {
         get fg() {
           return context.theme.text.muted
@@ -92,7 +94,12 @@ function UsageLine(props: UsageLineProps) {
           return label()
         },
       }),
-    }),
+    })
+  if (props.bare) return line()
+  return jsx("box", {
+    flexDirection: "row",
+    paddingLeft: 1,
+    children: line(),
   })
 }
 
@@ -148,7 +155,7 @@ export default Plugin.define({
       stopExec = undefined
     }
 
-    const unregister = context.ui.slot({
+    const unregisterPrompt = context.ui.slot({
       append: "prompt.footer.status",
       render: (input: any) => {
         const sessionID: string | undefined = input?.sessionID
@@ -165,8 +172,27 @@ export default Plugin.define({
           get hasKey() {
             return hasKey()
           },
+          requireSession: true,
         })
       },
+    })
+    // 起動直後のホーム画面（セッション未選択）でも表示する
+    const unregisterHome = context.ui.slot({
+      append: "home.footer.status",
+      render: () =>
+        jsx(UsageLine as unknown as AnyComponent, {
+          get snapshot() {
+            return snapshot()
+          },
+          get now() {
+            return now()
+          },
+          get hasKey() {
+            return hasKey()
+          },
+          requireSession: false,
+          bare: true,
+        }),
     })
 
     return () => {
@@ -178,9 +204,11 @@ export default Plugin.define({
       try {
         stopExec?.()
       } catch {}
-      try {
-        ;(unregister as unknown as () => void)?.()
-      } catch {}
+      for (const unregister of [unregisterPrompt, unregisterHome]) {
+        try {
+          ;(unregister as unknown as () => void)?.()
+        } catch {}
+      }
     }
   },
 })

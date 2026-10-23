@@ -2,7 +2,7 @@
 
 Goクォータ `Rolling/Weekly/Monthly %` をTUI入力欄直下の1行に表示するプラグイン。
 
-表示: `prompt.footer.status` にappend (`Go 5h 62%·3h30m Wk 28%·3d Mo 12%·14d`)
+表示: `prompt.footer.status` と `home.footer.status` にappend (`Go 5h 62%·3h30m Wk 28%·3d Mo 12%·14d`)
 重なり回避: `append`のみ、`replace`不使用、単一`<text muted>`+`Go`接頭辞。sidebar系と併存可。
 
 ## 使い方（mac/win共通・GitHub配布）
@@ -25,5 +25,7 @@ Goクォータ `Rolling/Weekly/Monthly %` をTUI入力欄直下の1行に表示�
 
 ## 表示確認
 
-TUI（`opencode`コマンドの全画面UI）でセッションを開いた状態の入力欄直下に出る。
-ホーム画面（セッション未選択）では出ない。TUI再起動が必要。
+- セッション画面: 入力欄直下（`prompt.footer.status`）
+- ホーム画面（起動直後・セッション未選択）: フッタ行に表示（`home.footer.status`）
+
+TUI再起動が必要。
