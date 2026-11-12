@@ -91,12 +91,12 @@ export function formatSummary(s: UsageSnapshot, now: number): string {
 }
 
 export class UsageError extends Error {
-  constructor(
-    message: string,
-    readonly status?: number,
-  ) {
+  readonly status?: number
+
+  constructor(message: string, status?: number) {
     super(message)
     this.name = "UsageError"
+    this.status = status
   }
 }
 
