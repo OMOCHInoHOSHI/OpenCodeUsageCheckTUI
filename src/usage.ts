@@ -1,6 +1,7 @@
 export interface UsageWindow {
   percent: number | null
-  resetsAt: string | null
+  /** リセット時刻。epoch ms に正規化して保持する。 */
+  resetsAt: number | null
 }
 
 export interface UsageSnapshot {
@@ -19,15 +20,36 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null
 }
 
+function toEpochMs(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v
+  if (typeof v === "string") {
+    const parsed = Date.parse(v)
+    if (!Number.isNaN(parsed)) return parsed
+  }
+  return null
+}
+
 function parseWindow(v: unknown): UsageWindow {
   if (!isRecord(v)) return { percent: null, resetsAt: null }
   return {
     percent: typeof v.percent === "number" && Number.isFinite(v.percent) ? v.percent : null,
-    resetsAt: typeof v.resetsAt === "string" ? v.resetsAt : null,
+    resetsAt: toEpochMs(v.resetsAt),
   }
 }
 
-function parseUsage(json: unknown): UsageSnapshot {
+/** `GET /api/experimental/usage/limits` の `UsageLimitsInfo` を解釈する。 */
+export function parseUsageLimits(info: unknown): UsageSnapshot | null {
+  if (!isRecord(info) || !isRecord(info.go)) return null
+  const go = info.go
+  return {
+    rolling: parseWindow(go.rolling),
+    weekly: parseWindow(go.weekly),
+    monthly: parseWindow(go.monthly),
+  }
+}
+
+/** 直叩きAPI (`/zen/go/v1/usage`) のレスポンスを解釈する。 */
+export function parseUsage(json: unknown): UsageSnapshot {
   const u = isRecord(json) && isRecord(json.usage) ? json.usage : {}
   return {
     rolling: parseWindow(u.rolling),
@@ -36,14 +58,12 @@ function parseUsage(json: unknown): UsageSnapshot {
   }
 }
 
-function getRemainingMs(resetsAt: string | null, now: number): number | null {
-  if (!resetsAt) return null
-  const target = Date.parse(resetsAt)
-  if (Number.isNaN(target)) return null
-  return Math.max(0, target - now)
+function getRemainingMs(resetsAt: number | null, now: number): number | null {
+  if (resetsAt === null) return null
+  return Math.max(0, resetsAt - now)
 }
 
-function formatHoursMinutes(resetsAt: string | null, now: number): string {
+function formatHoursMinutes(resetsAt: number | null, now: number): string {
   const diff = getRemainingMs(resetsAt, now)
   if (diff === null) return "あと-"
   const hours = Math.floor(diff / HOUR_MS)
@@ -51,7 +71,7 @@ function formatHoursMinutes(resetsAt: string | null, now: number): string {
   return `あと${hours}時間${minutes}分`
 }
 
-function formatDaysHours(resetsAt: string | null, now: number): string {
+function formatDaysHours(resetsAt: number | null, now: number): string {
   const diff = getRemainingMs(resetsAt, now)
   if (diff === null) return "あと-"
   const days = Math.floor(diff / DAY_MS)
@@ -70,11 +90,21 @@ export function formatSummary(s: UsageSnapshot, now: number): string {
   return `Go 5h ${rolling} 週 ${weekly} 月 ${monthly}`
 }
 
+export class UsageError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message)
+    this.name = "UsageError"
+  }
+}
+
 export async function fetchUsage(apiKey: string): Promise<UsageSnapshot> {
   const res = await fetch(USAGE_ENDPOINT, {
     headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
-  if (!res.ok) throw new Error(`usage ${res.status}`)
+  if (!res.ok) throw new UsageError(`usage ${res.status}`, res.status)
   return parseUsage(await res.json())
 }
