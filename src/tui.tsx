@@ -6,6 +6,7 @@
 import { createSignal, Show } from "opentui:runtime-module:solid-js"
 import { Plugin, usePlugin } from "opentui:runtime-module:%40opencode%2Fplugin%2Ftui"
 import { jsx } from "opentui:runtime-module:%40opentui%2Fsolid%2Fjsx-runtime"
+import { resolveApiKeys } from "./auth.js"
 import { fetchUsage, formatSummary, parseUsageLimits, UsageError, type UsageSnapshot } from "./usage.js"
 
 const FETCH_INTERVAL_MS = 5 * 60_000
@@ -16,56 +17,6 @@ const TICK_MS = 60_000
 // ジェネリックな Show との型差を吸収する。
 type AnyComponent = (props: Record<string, unknown>) => unknown
 const show = Show as unknown as AnyComponent
-
-const ENV_KEYS = ["OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY"] as const
-
-function credentialKey(item: any): string | null {
-  const value = item?.value ?? item
-  if (typeof value === "string") return value.length > 0 ? value : null
-  if (value?.type === "oauth") {
-    return typeof value.access === "string" && value.access.length > 0 ? value.access : null
-  }
-  const key = value?.key ?? value?.token ?? value?.apiKey
-  return typeof key === "string" && key.length > 0 ? key : null
-}
-
-function isGoCredential(item: any): boolean {
-  const id = String(item?.integrationID ?? item?.integration ?? item?.provider ?? "").toLowerCase()
-  return id.includes("opencode-go") || id === "go"
-}
-
-function isOpenCodeCredential(item: any): boolean {
-  const id = String(item?.integrationID ?? item?.integration ?? item?.provider ?? "").toLowerCase()
-  return id.includes("opencode") || id.includes("zen")
-}
-
-async function resolveApiKey(ctx: any): Promise<string | null> {
-  for (const name of ENV_KEYS) {
-    const value = process?.env?.[name]
-    if (typeof value === "string" && value.length > 0) return value
-  }
-
-  try {
-    const list = ctx?.client?.credential?.list
-    if (typeof list !== "function") return null
-    const res = await list.call(ctx.client)
-    // SDKは data を展開済み。HTTP生レスポンスの場合は data 配下を見る。
-    const items: any[] = Array.isArray(res) ? res : (res?.data ?? res?.credentials ?? [])
-    const active = items.filter((item) => item?.active !== false)
-
-    // Go優先 → その他OpenCode → それ以外の順で鍵を探す
-    for (const pick of [isGoCredential, isOpenCodeCredential, () => true]) {
-      for (const item of active) {
-        if (!pick(item)) continue
-        const key = credentialKey(item)
-        if (key) return key
-      }
-    }
-  } catch {
-    // credential API未対応・取得失敗時は無視
-  }
-  return null
-}
 
 type ClientUsage =
   | { supported: false }
@@ -168,21 +119,28 @@ export default Plugin.define({
           clientError = error
         }
 
-        const key = await resolveApiKey(context)
-        if (!key) {
+        const keys = await resolveApiKeys(context)
+        if (keys.length === 0) {
           if (!disposed) setStatus(clientError ? `取得失敗(${describeError(clientError)})` : "鍵なし")
           return
         }
-        try {
-          const next = await fetchUsage(key)
-          if (disposed) return
-          lastFetch = Date.now()
-          setSnapshot(next)
-          setStatus(null)
-        } catch (error) {
-          // 401/403/ネットワーク時は前回値保持しつつ、理由を1行に出す
-          if (!disposed) setStatus(`取得失敗(${describeError(error)})`)
+
+        // 期限切れ鍵(401)でも次候補で成功しうるため、順に試す
+        let firstError: unknown = null
+        for (const key of keys) {
+          try {
+            const next = await fetchUsage(key)
+            if (disposed) return
+            lastFetch = Date.now()
+            setSnapshot(next)
+            setStatus(null)
+            return
+          } catch (error) {
+            firstError ??= error
+          }
         }
+        // 全滅時は前回値保持しつつ、理由を1行に出す
+        if (!disposed) setStatus(`取得失敗(${describeError(firstError ?? clientError)})`)
       } finally {
         inFlight = false
       }
